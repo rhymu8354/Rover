@@ -10,6 +10,7 @@
 #include "TimeKeeper.hpp"
 
 #include <Http/Client.hpp>
+#include <Http/Request.hpp>
 #include <HttpNetworkTransport/HttpClientNetworkTransport.hpp>
 #include <signal.h>
 #include <stdio.h>
@@ -18,6 +19,23 @@
 #include <SystemAbstractions/DiagnosticsStreamReporter.hpp>
 
 namespace {
+
+    /**
+     * This function prints to the standard error stream information
+     * about how to use this program.
+     */
+    void PrintUsageInformation() {
+        fprintf(
+            stderr,
+            (
+                "Usage: Rover URL\n"
+                "\n"
+                "Fetch a web resource and output its contents to the standard output stream.\n"
+                "\n"
+                "  URL     Locator for resource to fetch\n"
+            )
+        );
+    }
 
     /**
      * This flag indicates whether or not the web client should shut down.
@@ -61,13 +79,17 @@ namespace {
      * @param[in,out] environment
      *     This is the environment to update.
      *
+     * @param[in] diagnosticMessageDelegate
+     *     This is the function to call to publish any diagnostic messages.
+     *
      * @return
      *     An indication of whether or not the function succeeded is returned.
      */
     bool ProcessCommandLineArguments(
         int argc,
         char* argv[],
-        Environment& environment
+        Environment& environment,
+        SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate diagnosticMessageDelegate
     ) {
         size_t state = 0;
         for (int i = 1; i < argc; ++i) {
@@ -75,13 +97,25 @@ namespace {
             switch (state) {
                 case 0: { // next argument
                     if (!environment.url.empty()) {
-                        fprintf(stderr, "error: multiple URLs given\n");
+                        diagnosticMessageDelegate(
+                            "Rover",
+                            SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                            "multiple URLs given"
+                        );
                         return false;
                     }
                     environment.url = arg;
                     state = 0;
                 } break;
             }
+        }
+        if (environment.url.empty()) {
+            diagnosticMessageDelegate(
+                "Rover",
+                SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                "no URL given"
+            );
+            return false;
         }
         return true;
     }
@@ -133,9 +167,98 @@ namespace {
         const Environment& environment,
         SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate diagnosticMessageDelegate
     ) {
-        while (!shutDown) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        Http::Request request;
+        request.method = "GET";
+        if (!request.target.ParseFromString(environment.url)) {
+            diagnosticMessageDelegate(
+                "Rover",
+                SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                "bad URL given"
+            );
+            return;
         }
+        diagnosticMessageDelegate(
+            "Rover",
+            1,
+            "Fetching '" + request.target.GenerateString() + "'..."
+        );
+        const auto transaction = client.Request(
+            request,
+            false
+        );
+        while (!shutDown) {
+            if (transaction->AwaitCompletion(std::chrono::milliseconds(250))) {
+                switch (transaction->state) {
+                    case Http::Client::Transaction::State::Completed: {
+                        (void)printf(
+                            (
+                                "Response: %u %s\n"
+                                "Headers: ---------------\n"
+                            ),
+                            transaction->response.statusCode,
+                            transaction->response.reasonPhrase.c_str()
+                        );
+                        for (const auto& header: transaction->response.headers.GetAll()) {
+                            (void)printf(
+                                "%s: %s\n",
+                                ((std::string)header.name).c_str(),
+                                header.value.c_str()
+                            );
+                        }
+                        (void)printf("------------------------\n");
+                        if (!transaction->response.body.empty()) {
+                            (void)fwrite(
+                                transaction->response.body.c_str(),
+                                transaction->response.body.length(),
+                                1,
+                                stdout
+                            );
+                            (void)fwrite("\n", 1, 1, stdout);
+                        }
+                    } break;
+
+                    case Http::Client::Transaction::State::UnableToConnect: {
+                        diagnosticMessageDelegate(
+                            "Rover",
+                            SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                            "unable to connect"
+                        );
+                    } break;
+
+                    case Http::Client::Transaction::State::Broken: {
+                        diagnosticMessageDelegate(
+                            "Rover",
+                            SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                            "connection broken by server"
+                        );
+                    } break;
+
+                    case Http::Client::Transaction::State::Timeout: {
+                        diagnosticMessageDelegate(
+                            "Rover",
+                            SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                            "timeout waiting for response"
+                        );
+                    } break;
+                }
+                return;
+            }
+        }
+        diagnosticMessageDelegate(
+            "Rover",
+            SystemAbstractions::DiagnosticsSender::Levels::WARNING,
+            "Fetch Canceled"
+        );
+    }
+
+    /**
+     * This function stops the client.
+     *
+     * @param[in,out] client
+     *     This is the client to stop.
+     */
+    void StopClient(Http::Client& client) {
+        client.Demobilize();
     }
 
 }
@@ -162,17 +285,19 @@ int main(int argc, char* argv[]) {
 #endif /* _WIN32 */
     const auto previousInterruptHandler = signal(SIGINT, InterruptHandler);
     Environment environment;
-    if (!ProcessCommandLineArguments(argc, argv, environment)) {
+    (void)setbuf(stdout, NULL);
+    const auto diagnosticsPublisher = SystemAbstractions::DiagnosticsStreamReporter(stderr, stderr);
+    if (!ProcessCommandLineArguments(argc, argv, environment, diagnosticsPublisher)) {
+        PrintUsageInformation();
         return EXIT_FAILURE;
     }
     Http::Client client;
-    (void)setbuf(stdout, NULL);
-    const auto diagnosticsPublisher = SystemAbstractions::DiagnosticsStreamReporter(stderr, stderr);
     const auto diagnosticsSubscription = client.SubscribeToDiagnostics(diagnosticsPublisher);
     StartClient(client, environment, diagnosticsPublisher);
     diagnosticsPublisher("Rover", 3, "Web client up and running.");
     FetchResourceAndReport(client, environment, diagnosticsPublisher);
     (void)signal(SIGINT, previousInterruptHandler);
     diagnosticsPublisher("Rover", 3, "Exiting...");
+    StopClient(client);
     return EXIT_SUCCESS;
 }
