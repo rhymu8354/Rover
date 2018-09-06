@@ -22,6 +22,7 @@ target_link_libraries(${This} PUBLIC
     Http
     HttpNetworkTransport
     SystemAbstractions
+    tls ssl crypto
 )
 
 if(UNIX AND NOT APPLE)
