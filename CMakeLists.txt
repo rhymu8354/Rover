@@ -22,8 +22,8 @@ target_link_libraries(${This} PUBLIC
     SystemAbstractions
 )
 
-if(UNIX)
+if(UNIX AND NOT APPLE)
     target_link_libraries(${This} PRIVATE
         -static-libstdc++
     )
-endif(UNIX)
+endif(UNIX AND NOT APPLE)

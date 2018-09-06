@@ -240,6 +240,8 @@ namespace {
                             "timeout waiting for response"
                         );
                     } break;
+
+                    default: break;
                 }
                 return;
             }
