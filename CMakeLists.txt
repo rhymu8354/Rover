@@ -9,6 +9,8 @@ set(Sources
     src/main.cpp
     src/TimeKeeper.cpp
     src/TimeKeeper.hpp
+    src/TlsDecorator.cpp
+    src/TlsDecorator.hpp
 )
 
 add_executable(${This} ${Sources})

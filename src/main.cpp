@@ -8,17 +8,29 @@
  */
 
 #include "TimeKeeper.hpp"
+#include "TlsDecorator.hpp"
 
 #include <Http/Client.hpp>
 #include <Http/Request.hpp>
 #include <HttpNetworkTransport/HttpClientNetworkTransport.hpp>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
 #include <SystemAbstractions/DiagnosticsStreamReporter.hpp>
 
 namespace {
+
+    /**
+     * This is the default port for HTTP (not over TLS).
+     */
+    constexpr uint16_t DEFAULT_HTTP_PORT = 80;
+
+    /**
+     * This is the default port for HTTP over TLS.
+     */
+    constexpr uint16_t DEFAULT_HTTPS_PORT = 443;
 
     /**
      * This function prints to the standard error stream information
@@ -50,7 +62,7 @@ namespace {
         /**
          * This is the URL of the resource to fetch.
          */
-        std::string url;
+        Uri::Uri url;
     };
 
     /**
@@ -91,12 +103,13 @@ namespace {
         Environment& environment,
         SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate diagnosticMessageDelegate
     ) {
+        std::string urlString;
         size_t state = 0;
         for (int i = 1; i < argc; ++i) {
             const std::string arg(argv[i]);
             switch (state) {
                 case 0: { // next argument
-                    if (!environment.url.empty()) {
+                    if (!urlString.empty()) {
                         diagnosticMessageDelegate(
                             "Rover",
                             SystemAbstractions::DiagnosticsSender::Levels::ERROR,
@@ -104,18 +117,36 @@ namespace {
                         );
                         return false;
                     }
-                    environment.url = arg;
+                    urlString = arg;
                     state = 0;
                 } break;
             }
         }
-        if (environment.url.empty()) {
+        if (urlString.empty()) {
             diagnosticMessageDelegate(
                 "Rover",
                 SystemAbstractions::DiagnosticsSender::Levels::ERROR,
                 "no URL given"
             );
             return false;
+        }
+        if (!environment.url.ParseFromString(urlString)) {
+            diagnosticMessageDelegate(
+                "Rover",
+                SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                "bad URL given"
+            );
+            return false;
+        }
+        const auto scheme = environment.url.GetScheme();
+        if (scheme == "https") {
+            if (!environment.url.HasPort()) {
+                environment.url.SetPort(DEFAULT_HTTPS_PORT);
+            }
+        } else if (scheme == "http") {
+            if (!environment.url.HasPort()) {
+                environment.url.SetPort(DEFAULT_HTTP_PORT);
+            }
         }
         return true;
     }
@@ -132,8 +163,11 @@ namespace {
      *
      * @param[in] diagnosticMessageDelegate
      *     This is the function to call to publish any diagnostic messages.
+     *
+     * @return
+     *     An indication of whether or not the function succeeded is returned.
      */
-    void StartClient(
+    bool StartClient(
         Http::Client& client,
         const Environment& environment,
         SystemAbstractions::DiagnosticsSender::DiagnosticMessageDelegate diagnosticMessageDelegate
@@ -141,9 +175,32 @@ namespace {
         auto transport = std::make_shared< HttpNetworkTransport::HttpClientNetworkTransport >();
         transport->SubscribeToDiagnostics(diagnosticMessageDelegate, 0);
         Http::Client::MobilizationDependencies deps;
-        deps.transport = transport;
+        const auto scheme = environment.url.GetScheme();
+        if (scheme.empty()) {
+            diagnosticMessageDelegate(
+                "Rover",
+                SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                "no scheme in URL"
+            );
+            return false;
+        }
+        if (scheme == "https") {
+            auto tls = std::make_shared< TlsDecorator >();
+            tls->Configure(transport);
+            deps.transport = tls;
+        } else if (scheme == "http") {
+            deps.transport = transport;
+        } else {
+            diagnosticMessageDelegate(
+                "Rover",
+                SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                "unsupported URL scheme"
+            );
+            return false;
+        }
         deps.timeKeeper = std::make_shared< TimeKeeper >();
         client.Mobilize(deps);
+        return true;
     }
 
     /**
@@ -169,14 +226,7 @@ namespace {
     ) {
         Http::Request request;
         request.method = "GET";
-        if (!request.target.ParseFromString(environment.url)) {
-            diagnosticMessageDelegate(
-                "Rover",
-                SystemAbstractions::DiagnosticsSender::Levels::ERROR,
-                "bad URL given"
-            );
-            return;
-        }
+        request.target = environment.url;
         diagnosticMessageDelegate(
             "Rover",
             1,
@@ -295,7 +345,9 @@ int main(int argc, char* argv[]) {
     }
     Http::Client client;
     const auto diagnosticsSubscription = client.SubscribeToDiagnostics(diagnosticsPublisher);
-    StartClient(client, environment, diagnosticsPublisher);
+    if (!StartClient(client, environment, diagnosticsPublisher)) {
+        return EXIT_FAILURE;
+    }
     diagnosticsPublisher("Rover", 3, "Web client up and running.");
     FetchResourceAndReport(client, environment, diagnosticsPublisher);
     (void)signal(SIGINT, previousInterruptHandler);
