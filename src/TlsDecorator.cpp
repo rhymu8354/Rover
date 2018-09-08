@@ -215,13 +215,13 @@ namespace {
             return upperLayer_->GetPeerId();
         }
 
-        virtual void SetDataReceivedDelegate(DataReceivedDelegate dataReceivedDelegate) {
+        virtual void SetDataReceivedDelegate(DataReceivedDelegate dataReceivedDelegate) override {
         }
 
-        virtual void SetBrokenDelegate(BrokenDelegate brokenDelegate) {
+        virtual void SetBrokenDelegate(BrokenDelegate brokenDelegate) override {
         }
 
-        virtual void SendData(const std::vector< uint8_t >& data) {
+        virtual void SendData(const std::vector< uint8_t >& data) override {
             printf("queueing %zu to send to TLS\n", data.size());
             std::unique_lock< decltype(mutex_) > lock(mutex_);
             sendBuffer_.insert(
@@ -232,7 +232,7 @@ namespace {
             wakeCondition_.notify_all();
         }
 
-        virtual void Break(bool clean) {
+        virtual void Break(bool clean) override {
             printf("breaking our end\n");
             upperLayer_->Break(false);
         }
