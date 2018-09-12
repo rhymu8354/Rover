@@ -8,7 +8,6 @@
  */
 
 #include "TimeKeeper.hpp"
-#include "TlsDecorator.hpp"
 
 #include <Http/Client.hpp>
 #include <Http/Request.hpp>
@@ -19,6 +18,8 @@
 #include <stdlib.h>
 #include <string>
 #include <SystemAbstractions/DiagnosticsStreamReporter.hpp>
+#include <SystemAbstractions/NetworkConnection.hpp>
+#include <TlsDecorator/TlsDecorator.hpp>
 
 namespace {
 
@@ -185,9 +186,15 @@ namespace {
             return false;
         }
         if (scheme == "https") {
-            auto tls = std::make_shared< TlsDecorator >();
-            tls->Configure(transport);
-            deps.transport = tls;
+            transport->SetConnectionFactory(
+                [](const std::string& serverName){
+                    const auto decorator = std::make_shared< TlsDecorator::TlsDecorator >();
+                    const auto connection = std::make_shared< SystemAbstractions::NetworkConnection >();
+                    decorator->Configure(connection, serverName);
+                    return decorator;
+                }
+            );
+            deps.transport = transport;
         } else if (scheme == "http") {
             deps.transport = transport;
         } else {
