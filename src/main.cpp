@@ -18,7 +18,9 @@
 #include <stdlib.h>
 #include <string>
 #include <SystemAbstractions/DiagnosticsStreamReporter.hpp>
+#include <SystemAbstractions/File.hpp>
 #include <SystemAbstractions/NetworkConnection.hpp>
+#include <SystemAbstractions/StringExtensions.hpp>
 #include <TlsDecorator/TlsDecorator.hpp>
 
 namespace {
@@ -187,10 +189,38 @@ namespace {
         }
         if (scheme == "https") {
             transport->SetConnectionFactory(
-                [](const std::string& serverName){
+                [diagnosticMessageDelegate](const std::string& serverName) -> std::shared_ptr< SystemAbstractions::INetworkConnection > {
                     const auto decorator = std::make_shared< TlsDecorator::TlsDecorator >();
                     const auto connection = std::make_shared< SystemAbstractions::NetworkConnection >();
-                    decorator->Configure(connection, serverName);
+                    SystemAbstractions::File caCertsFile(
+                        SystemAbstractions::File::GetExeParentDirectory()
+                        + "/cert.pem"
+                    );
+                    if (!caCertsFile.Open()) {
+                        diagnosticMessageDelegate(
+                            "Rover",
+                            SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                            SystemAbstractions::sprintf(
+                                "unable to open root CA certificates file '%s'",
+                                caCertsFile.GetPath().c_str()
+                            )
+                        );
+                        return nullptr;
+                    }
+                    std::vector< uint8_t > caCertsBuffer(caCertsFile.GetSize());
+                    if (caCertsFile.Read(caCertsBuffer) != caCertsBuffer.size()) {
+                        diagnosticMessageDelegate(
+                            "Rover",
+                            SystemAbstractions::DiagnosticsSender::Levels::ERROR,
+                            "unable to read root CA certificates file"
+                        );
+                        return nullptr;
+                    }
+                    const std::string caCerts(
+                        (const char*)caCertsBuffer.data(),
+                        caCertsBuffer.size()
+                    );
+                    decorator->Configure(connection, caCerts, serverName);
                     return decorator;
                 }
             );
