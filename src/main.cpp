@@ -220,7 +220,7 @@ namespace {
                         (const char*)caCertsBuffer.data(),
                         caCertsBuffer.size()
                     );
-                    decorator->Configure(connection, caCerts, serverName);
+                    decorator->ConfigureAsClient(connection, caCerts, serverName);
                     return decorator;
                 }
             );
