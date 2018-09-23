@@ -21,6 +21,7 @@
 #include <SystemAbstractions/File.hpp>
 #include <SystemAbstractions/NetworkConnection.hpp>
 #include <SystemAbstractions/StringExtensions.hpp>
+#include <thread>
 #include <TlsDecorator/TlsDecorator.hpp>
 
 namespace {
@@ -277,6 +278,7 @@ namespace {
             if (transaction->AwaitCompletion(std::chrono::milliseconds(250))) {
                 switch (transaction->state) {
                     case Http::Client::Transaction::State::Completed: {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
                         (void)printf(
                             (
                                 "Response: %u %s\n"
