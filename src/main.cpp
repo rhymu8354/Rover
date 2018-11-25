@@ -190,7 +190,10 @@ namespace {
         }
         if (scheme == "https") {
             transport->SetConnectionFactory(
-                [diagnosticMessageDelegate](const std::string& serverName) -> std::shared_ptr< SystemAbstractions::INetworkConnection > {
+                [diagnosticMessageDelegate](
+                    const std::string& scheme,
+                    const std::string& serverName
+                ) -> std::shared_ptr< SystemAbstractions::INetworkConnection > {
                     const auto decorator = std::make_shared< TlsDecorator::TlsDecorator >();
                     const auto connection = std::make_shared< SystemAbstractions::NetworkConnection >();
                     SystemAbstractions::File caCertsFile(
