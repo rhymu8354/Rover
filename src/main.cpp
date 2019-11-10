@@ -17,10 +17,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string>
+#include <StringExtensions/StringExtensions.hpp>
 #include <SystemAbstractions/DiagnosticsStreamReporter.hpp>
 #include <SystemAbstractions/File.hpp>
 #include <SystemAbstractions/NetworkConnection.hpp>
-#include <SystemAbstractions/StringExtensions.hpp>
 #include <thread>
 #include <TlsDecorator/TlsDecorator.hpp>
 
@@ -204,7 +204,7 @@ namespace {
                         diagnosticMessageDelegate(
                             "Rover",
                             SystemAbstractions::DiagnosticsSender::Levels::ERROR,
-                            SystemAbstractions::sprintf(
+                            StringExtensions::sprintf(
                                 "unable to open root CA certificates file '%s'",
                                 caCertsFile.GetPath().c_str()
                             )
