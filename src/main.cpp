@@ -200,7 +200,7 @@ namespace {
                         SystemAbstractions::File::GetExeParentDirectory()
                         + "/cert.pem"
                     );
-                    if (!caCertsFile.Open()) {
+                    if (!caCertsFile.OpenReadOnly()) {
                         diagnosticMessageDelegate(
                             "Rover",
                             SystemAbstractions::DiagnosticsSender::Levels::ERROR,
